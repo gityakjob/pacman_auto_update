@@ -12,7 +12,7 @@ check_updates() {
 	fi
     # Checks if there are any signature files present in the /var/lib/pacman/sync directory. 
     # If there are any signature files, it removes all files from the directory.
-    if [ -n "$(ls -A /var/lib/pacman/sync/*.sig)" ]; then
+    if [ -e /var/lib/pacman/sync/*.sig ]; then
         rm -f /var/lib/pacman/sync/*
     fi
 	echo "Updating the replica"
