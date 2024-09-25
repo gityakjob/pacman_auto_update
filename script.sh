@@ -66,7 +66,8 @@ monitor_pacman() {
     if [ -n "$(ls -A /var/cache/pacman/pkg/)" ]; then
         echo "Deleting Pacman cache files..."
         pacman -Sc --noconfirm > /dev/null
-        return 1
+        rm -f /var/cache/pacman/pkg/*
+        return 0
     fi
 }
 # If updates are available, it initiates the process and checks for its status.
