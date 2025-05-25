@@ -1,6 +1,46 @@
 #!/bin/bash
 # Bash script for updating and monitoring Pacman package manager process.
+
+# --- Configuration for Desktop Notifications ---
+# UID of the desktop user to notify.
+# Ensure this UID corresponds to the user running the KDE desktop session.
+TARGET_USER_UID="1000"
+
+# Attempt to get the username from UID.
+TARGET_USER_NAME=$(getent passwd "$TARGET_USER_UID" | cut -d: -f1)
+
+# Display server for the user's session, usually :0.
+USER_DISPLAY=":0"
+
+# --- Helper function to send desktop notifications as the target user ---
+send_user_notification() {
+    local urgency="normal"
+    local title="$1"
+    local message="$2"
+
+    # Handle optional urgency argument (e.g., -u critical)
+    if [ "$1" = "-u" ]; then
+        urgency="$2"
+        title="$3"
+        message="$4"
+    fi
+
+    if [ -z "$TARGET_USER_NAME" ]; then
+        echo "Error: Desktop user (UID $TARGET_USER_UID) not found. Cannot send notification." >&2
+        return 1
+    fi
+
+    local dbus_address="unix:path=/run/user/$TARGET_USER_UID/bus"
+
+    # Use sudo to run notify-send as the target user with appropriate environment variables
+    sudo -H -u "$TARGET_USER_NAME" \
+        DISPLAY="$USER_DISPLAY" \
+        DBUS_SESSION_BUS_ADDRESS="$dbus_address" \
+        notify-send ${urgency:+-u "$urgency"} "$title" "$message"
+}
+
 check_updates() {
+
 	# It first checks for updates, then monitors the Pacman process for any errors or completion.
 	# Checks if the file /var/lib/pacman/db.lck exists and removes it if it does.
     if [ -f /var/lib/pacman/db.lck ]; then
@@ -10,21 +50,25 @@ check_updates() {
 	if [ -f /opt/pacman_output.log ]; then
 		rm /opt/pacman_output.log
 	fi
-    # Checks if there are any signature files present in the /var/lib/pacman/sync directory. 
+    # Checks if there are any signature files present in the /var/lib/pacman/sync directory.
     # If there are any signature files, it removes all files from the directory.
     dirSync="/var/lib/pacman/sync"
     if ls "$dirSync"/*.sig 1> /dev/null 2>&1; then
         rm -f /var/lib/pacman/sync/*
     fi
 	echo "Updating the replica"
+    send_user_notification "Pacman update" "Updating the replica"
 	pacman -Sy > /dev/null
 	echo "Updated replica"
+    send_user_notification "Pacman update" "Updated replica"
     updates_count=$(pacman -Qu | wc -l)
     if [ $updates_count -gt 0 ]; then
         echo "There are $updates_count updates available."
+        send_user_notification "Pacman update" "There are $updates_count updates available."
         return 0  # Updates available
     else
         echo "No updates available at this time."
+        send_user_notification -u critical "Pacman update" "No updates available at this time."
         return 1
     fi
 }
@@ -35,8 +79,10 @@ monitor_pacman() {
         if pgrep -x "pacman" > /dev/null
         then
             echo "Process is running."
+            send_user_notification "Pacman update" "Process is running."
         else
             echo "The pacman process is not running. Starting the process..."
+            send_user_notification "Pacman update" "The pacman process is not running. Starting the process..."
             # Execute pacman in the background and redirect the output to a file
             pacman -Syu --noconfirm > pacman_output.log 2>&1 &
             # Wait for a period of time to check if the process times out.
@@ -45,14 +91,17 @@ monitor_pacman() {
             if pgrep -x "pacman" > /dev/null
             then
                 echo "Process is running."
+                send_user_notification "Pacman update" "Process is running."
             else
                 # Check the output of pacman to determine if there was an error
                 if grep -q "error" pacman_output.log
                 then
                     echo "The pacman process has ended with an error. Restarting the process..."
+                    send_user_notification -u critical "Pacman update" "The pacman process has ended with an error. Restarting the process..."
                     pacman -Syu --noconfirm > pacman_output.log 2>&1 &
                 else
                     echo "The pacman process has finished successfully."
+                    send_user_notification "Pacman update" "The pacman process has finished successfully."
                     rm pacman_output.log
                     break  # Exit the loop
                 fi
@@ -65,8 +114,9 @@ monitor_pacman() {
     #/var/cache/pacman/pkg/
     if [ -n "$(ls -A /var/cache/pacman/pkg/)" ]; then
         echo "Deleting Pacman cache files..."
+        send_user_notification "Pacman update" "Deleting Pacman cache files..."
         pacman -Sc --noconfirm > /dev/null
-        rm -f /var/cache/pacman/pkg/*
+	rm -f /var/cache/pacman/pkg/*
         return 0
     fi
 }
